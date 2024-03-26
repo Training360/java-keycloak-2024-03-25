@@ -171,12 +171,15 @@ Más elnevezéstant használ:
 
 * Authorization Code: klasszikus mód, ahogy egy webes alkalmazásba <br /> lépünk Facebook vagy a Google segítségével,
 Authorization Code kerül vissza, mellyel lekérhető háttérben az Access Token
-* Implicit: mobil alkalmazások, vagy SPA-k használják, Access Tokent kap azonnal (deprecated)
-* Authorization Code Grant with Proof Key for Code Exchange (PKCE): mint az Authorization Code, de egy plusz lépéssel, hogy biztonságosabb legyen mobil/SPA alkalmazásoknál
-* Resource Owner Password Credentials: ezt olyan megbízható <br /> alkalmazások használják, melyek maguk kérik be a jelszót, nem kell átirányítás (deprecated)
+* Authorization Code Grant with Proof Key for Code Exchange (PKCE): mint az Authorization Code, de egy plusz lépéssel, hogy biztonságosabb legyen mobil/SPA alkalmazásoknál - OAuth 2.1-ben már webes alkalmazásoknál is kötelező lesz
 * Client Credentials: ebben az esetben <br /> nem a felhasználó kerül azonosításra, <br /> hanem az alkalmazás önmaga
 * Device Authorization Flow: korlátozott eszközökön, pl. okostévé
 * Refresh Token: új Access Token lekérése Refresh Tokennel
+
+Deprecated:
+
+* Implicit: mobil alkalmazások, vagy SPA-k használják, Access Tokent kap azonnal (deprecated)
+* Resource Owner Password Credentials: ezt olyan megbízható <br /> alkalmazások használják, melyek maguk kérik be a jelszót, nem kell átirányítás (deprecated)
 
 ## Authorization Code
 
@@ -188,6 +191,22 @@ Authorization Code kerül vissza, mellyel lekérhető háttérben az Access Toke
 * Az Authorization Code-dal az alkalmazás lekéri a tokeneket
 * Az alkalmazás elindítja a felhasználói sessiont
 * Az Access Tokennel hozzáfér az alkalmazás a Resource Serveren lévő erőforráshoz
+
+## PKCE
+
+* ejtsd: "pixie"
+* CSRF és authorization code injection elleni védelemre
+* Public client: mobil alkalmazások, SPA alkalmazások, ahol a client secret nem tárolható
+* Confidental client: webes alkalmazás, ennél is ajánlott
+
+Lépések:
+
+* Bejelentkezés előtt a kliens generál egy véletlen kódot: `code_verifier`
+* Ebből készít egy `code_challenge`-t, SHA-256 hash algoritmussal
+* Authorization Code kérésekor elküldi paraméterben, Base64 és URL encode után:
+  * `code_challenge`
+  * `code_challenge_method`: `S256`
+* Mikor a code használatával tokent kér le, ezt is el kell küldenie `code_verifier` (form) paraméterként
 
 ## További specifikációk
 
@@ -323,11 +342,23 @@ Nincs benne a szerepkör az id tokenben, ezért hozzá kell adni: _Client Scopes
 
 `realm_access/roles` path-on kerül bele
 
-UserInfo endpoint meghívása
+## UserInfo endpoint meghívása
 
 ```http
 GET http://localhost:8080/realms/employees/protocol/openid-connect/userinfo
 Authorization: Bearer eyJhb...
+```
+
+## Refresh
+
+Új tokenek lekérése refresh tokennel
+
+```http
+### Refresh token
+POST http://localhost:8080/realms/employees/protocol/openid-connect/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=refresh_token&client_id=employees-frontend&scope=openid&refresh_token=eyJhb...
 ```
 
 ## Alkalmazások indítása
@@ -379,7 +410,7 @@ Authorization: Bearer eyJhb...
 * Átirányítás a Keycloakra
 
 ```
-GET http://localhost:8080/realms/employees/protocol/openid-connect/auth?response_type=code&client_id=employees-frontend&scope=openid%20email%20profile&state=X7QxVPcXSNoqylplsx1ScyL6zIaWIsxMybWIFXtJacM%3D&redirect_uri=http://localhost:8082/login/oauth2/code/&nonce=ZsvjELtbFK_SE-zkgkX1Jmg0CLNy6x5jZb4P6aSq1XQ
+GET http://localhost:8080/realms/employees/protocol/openid-connect/auth?response_type=code&client_id=employees-frontend&scope=openid%20email%20profile&state=X7QxVPcXSNoqylplsx1ScyL6zIaWIsxMybWIFXtJacM%3D&redirect_uri=http://localhost:8082/login/oauth2/code/&nonce=ZsvjELtbFK_SE-zkgkX1Jmg0CLNy6x5jZb4P6aSq1XQ&code_challenge=I1GLEWGZCcpN1QACKD2WjUsTJ4CG_sfToEyefe5wNrM&code_challenge_method=S256
 ```
 
 URL paraméterek:
@@ -387,12 +418,17 @@ URL paraméterek:
 * `response_type=code` - authorization code-ot kér vissza
 * `client_id=employees-frontend`
 * `scope=openid email profile`
-* `state`: CSRF támadás ellen, átirányítás előtt elmenti (pl. session), majd visszairányításnál visszakapja és ellenőrzi
+* `state`: CSRF támadás ellen, átirányítás előtt elmenti (pl. session), majd visszairányításnál visszakapja és ellenőrzi (OAuth 2.0 protokoll része)
 * `redirect_uri` - ide kéri a visszairányítást
+* `nonce` (OpenID Connect része) - client generálja, auth server beleteszi a tokenbe, amit a client ellenőrizni tud 
+* `code_challenge` - PKCE code challange
+* `code_challenge_method` - `code_challenge` hash algoritmus, `S256` az SHA-256 algoritmus
+
+https://stackoverflow.com/questions/46844285/difference-between-oauth-2-0-state-and-openid-nonce-parameter-why-state-cou
 
 * Bejelentkezés
 
-```
+```http
 POST http://localhost:8080/realms/EmployeesRealm/login-actions/authenticate?session_code=iFsJsXinyZy6parjQjz2dAWDqJATR-njQoHs-Z6Ug1g&execution=971d1195-045a-4f2f-813d-75c4799f5ac7&client_id=employees-frontend&tab_id=Zd8-5rWuBJ8
 
 username=johndoe&password=johndoe&credentialId=
@@ -402,7 +438,8 @@ username=johndoe&password=johndoe&credentialId=
 
 * Átirányítás
 
-```GET
+```http
+GET
 http://localhost:8082/login/oauth2/code/?state=X7QxVPcXSNoqylplsx1ScyL6zIaWIsxMybWIFXtJacM%3D&session_state=156d2eca-2221-4644-bfe1-bd2677f2a1f8&iss=http%3A%2F%2Flocalhost%3A8080%2Frealms%2Femployees&code=7a49f249-11fc-4add-8b93-a6081b5f9dd3.156d2eca-2221-4644-bfe1-bd2677f2a1f8.73218982-1a49-4076-9ca1-fa875c16f64d
 ```
 
@@ -411,9 +448,31 @@ http://localhost:8082/login/oauth2/code/?state=X7QxVPcXSNoqylplsx1ScyL6zIaWIsxMy
 * `iss` - "mix-up attacks" elleni védelem, kiadó urlje
 * `code` - authorization code
 
+* Háttérhívás
+
+* Nem naplózható
+* Wireshark, filter: `http && tcp.dstport == 8080`
+
+```http
+POST http://localhost:8082/realms/employees/protocol/openid-connect/token
+Accept: application/json;charset=UTF-8
+Content-Type: application/x-www-form-urlencoded;charset=UTF-8
+Authorization: Basic ZW1wbG95ZWVzLWZyb250ZW5kOg==\r\n
+    
+grant_type=authorization_code&code=6b4816d3-7961-4cd5-83ef-6800a12212fa.611c0068-03ca-4e2e-ba6e-fba7070789c0.5afa4314-7188-431c-b8f4-d9c050d02f6e&redirect_uri=http://localhost:8082/login/oauth2/code/keycloak&code_verifier=ojgU0F8Ykuu3BiLa-dpPbJ270pfY5Psb4wBEKCdkl_PkGQYkJrYRYhmv6_xc1eKMPnp1fzYTGgdNrt3qJJIIXHsqeLh2rv9SKTvzlk84Vnc5-
+```
+
+* `Authorization` header értéke a `client_id`
+* `grant_type=authorization_code`
+* `code`: Authorization Code
+* `redirect_uri`
+* `code_verifier` PKCE
+
 * Backend log: HTTP requestben az `Authorization` header a Bearer tokennel
 
 ## Kijelentkezés
+
+A kliens alkalmazás behív az `end_session_endpoint` URL-re, melyet az OpenID Provider’s Discovery Metadata-ból olvas ki:
 
 ```
 http://localhost:8080/realms/employees/protocol/openid-connect/logout
@@ -449,6 +508,13 @@ spring:
 
 * `SecurityConfig` `filterChain()` metódusa
 * `userAuthoritiesMapper()` role-ok beolvasása
+* Logout
+
+`logoutSuccessHandler(oidcLogoutSuccessHandler())`
+
+* PKCE bekapcsolása
+
+`OAuth2AuthorizationRequestCustomizers.withPkce()`
 
 * Token továbbküldése, `ClientConfig` osztályban
 
@@ -496,8 +562,6 @@ _Scope_: `openid`
 # Logout
 
 ## OpenID Connect 1.0 Client-Initiated Logout
-
-A kliens alkalmazás behív az `end_session_endpoint` URL-re, melyet az OpenID Provider’s Discovery Metadata-ból olvas ki
 
 Forráskód szinten:
 
@@ -942,7 +1006,15 @@ Konzol logon is megjelenik a `type="LOGIN_ERROR"`
 
 # X.509 client certificate user authentication
 
-https://www.keycloak.org/docs/16.1/server_admin/index.html#_x509
+https://www.keycloak.org/docs/latest/server_admin/index.html#_x509
+
+# Key rotation
+
+https://www.keycloak.org/docs/latest/server_admin/index.html#rotating-keys
+
+# TLS konfigurálása
+
+https://www.keycloak.org/server/enabletls
 
 # Health and metrics
 

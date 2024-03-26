@@ -13,8 +13,7 @@ import org.springframework.security.oauth2.client.OAuth2AuthorizedClientProvider
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientProviderBuilder;
 import org.springframework.security.oauth2.client.oidc.web.logout.OidcClientInitiatedLogoutSuccessHandler;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
-import org.springframework.security.oauth2.client.web.DefaultOAuth2AuthorizedClientManager;
-import org.springframework.security.oauth2.client.web.OAuth2AuthorizedClientRepository;
+import org.springframework.security.oauth2.client.web.*;
 import org.springframework.security.oauth2.core.oidc.user.OidcUserAuthority;
 import org.springframework.security.oauth2.core.user.OAuth2UserAuthority;
 import org.springframework.security.web.SecurityFilterChain;
@@ -32,7 +31,11 @@ public class SecurityConfig {
     private ClientRegistrationRepository clientRegistrationRepository;
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain filterChain(HttpSecurity http, ClientRegistrationRepository repo) throws Exception {
+        var base_uri = OAuth2AuthorizationRequestRedirectFilter.DEFAULT_AUTHORIZATION_REQUEST_BASE_URI;
+        var resolver = new DefaultOAuth2AuthorizationRequestResolver(repo, base_uri);
+        resolver.setAuthorizationRequestCustomizer(OAuth2AuthorizationRequestCustomizers.withPkce());
+
         http
                 .authorizeHttpRequests(registry -> registry
                                 .requestMatchers( "/create-employee")
@@ -40,7 +43,7 @@ public class SecurityConfig {
                                 .anyRequest()
                                 .permitAll()
                         )
-                .oauth2Login(Customizer.withDefaults())
+                .oauth2Login(customizer -> customizer.authorizationEndpoint(config -> config.authorizationRequestResolver(resolver)))
                 .logout(logout -> logout
                         .logoutSuccessHandler(oidcLogoutSuccessHandler())
                 );
